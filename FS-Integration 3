@@ -1,0 +1,141 @@
+// client/src/App.js
+import React, { useEffect, useRef, useState } from "react";
+import { io } from "socket.io-client";
+import "./Chat.css";
+
+const SOCKET_SERVER_URL = "http://localhost:5000"; // backend address
+
+function App() {
+  const [socket, setSocket] = useState(null);
+  const [connected, setConnected] = useState(false);
+  const [name, setName] = useState("");
+  const [enteredName, setEnteredName] = useState("");
+  const [message, setMessage] = useState("");
+  const [messages, setMessages] = useState([]);
+  const [users, setUsers] = useState([]);
+
+  const messagesRef = useRef();
+
+  useEffect(() => {
+    const s = io(SOCKET_SERVER_URL, {
+      transports: ["websocket", "polling"],
+    });
+
+    setSocket(s);
+
+    s.on("connect", () => {
+      console.log("connected", s.id);
+      setConnected(true);
+    });
+
+    s.on("disconnect", () => {
+      setConnected(false);
+      console.log("disconnected");
+    });
+
+    s.on("message", (msg) => {
+      setMessages(prev => [...prev, msg]);
+      // auto-scroll
+      setTimeout(() => {
+        if (messagesRef.current) {
+          messagesRef.current.scrollTop = messagesRef.current.scrollHeight;
+        }
+      }, 50);
+    });
+
+    s.on("user-list", (list) => {
+      setUsers(list);
+    });
+
+    return () => {
+      s.disconnect();
+    };
+  }, []);
+
+  const handleJoin = () => {
+    if (!enteredName.trim() || !socket) return;
+    setName(enteredName.trim());
+    socket.emit("join", enteredName.trim());
+  };
+
+  const sendMessage = (e) => {
+    e?.preventDefault();
+    if (!message.trim() || !socket) return;
+    socket.emit("chat-message", message.trim());
+    setMessage("");
+  };
+
+  return (
+    <div className="chat-container">
+      <h1>Live Chat</h1>
+
+      {!name ? (
+        <div className="join-box">
+          <input
+            value={enteredName}
+            onChange={(e) => setEnteredName(e.target.value)}
+            placeholder="Enter your name"
+          />
+          <button onClick={handleJoin} disabled={!connected}>
+            Join Chat
+          </button>
+          {!connected && <div className="hint">Connecting to server...</div>}
+        </div>
+      ) : (
+        <div className="chat-area">
+          <div className="left">
+            <div className="users">
+              <h3>Users</h3>
+              <ul>
+                {users.map(u => (
+                  <li key={u.id}>{u.name}{u.id === socket?.id ? " (you)" : ""}</li>
+                ))}
+              </ul>
+            </div>
+          </div>
+
+          <div className="right">
+            <div className="messages" ref={messagesRef}>
+              {messages.map((m, idx) => (
+                <div
+                  key={idx}
+                  className={`message ${m.system ? "system" : (m.id === socket?.id ? "mine" : "")}`}
+                >
+                  {m.system ? (
+                    <em>{m.text}</em>
+                  ) : (
+                    <>
+                      <div className="meta">
+                        <strong>{m.name}</strong>
+                        <span className="time">{new Date(m.timestamp).toLocaleTimeString()}</span>
+                      </div>
+                      <div className="text">{m.text}</div>
+                    </>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            <form className="composer" onSubmit={sendMessage}>
+              <input
+                value={message}
+                onChange={(e) => setMessage(e.target.value)}
+                placeholder="Type a message..."
+                disabled={!connected}
+              />
+              <button type="submit" disabled={!message.trim()}>
+                Send
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      <footer>
+        <small>Server: {SOCKET_SERVER_URL} • Status: {connected ? "Connected" : "Disconnected"}</small>
+      </footer>
+    </div>
+  );
+}
+
+export default App;
